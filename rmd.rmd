@@ -1,0 +1,588 @@
+---
+title: "J Comp"
+date: "2023-02-20"
+output: html_document
+---
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+library(recommenderlab)
+library(readr)
+library(matrixStats)
+library(knitr)
+#install.packages("tidyverse")
+library(tidyverse)
+library(dplyr)
+library(proxy)
+
+# turn off scientific notation
+options(scipen=999)
+
+set.seed(1)
+```
+_____
+
+### Loading the dataset
+
+```{r, message = FALSE, warning = FALSE}
+# load list of last.fm artists: drop columns containing URL's since they aren't needed
+lfm_art <- read_delim("C:\\Users\\admin\\OneDrive\\Documents\\VIT\\Sem 6\\D- DV\\J Comp\\Dataset\\artists.dat", delim = "\t") %>% select(id, name)
+
+# cleanup foreign characters in artist names: most will be converted to '?'
+lfm_art$name <- iconv(lfm_art$name, from = "UTF-8", to = "ASCII//TRANSLIT")
+```
+```{r}
+# load last.fm user_artists file
+lastfm <- read.table("C:\\Users\\admin\\OneDrive\\Documents\\VIT\\Sem 6\\D- DV\\J Comp\\Dataset\\user_artists.dat", header = TRUE, sep = "", stringsAsFactors = FALSE)
+```
+
+We then calculate the number of users who have listened to each artist listed within the file. The results of those calculations then allow us to truncate the user-artists data to the top 1000 artists as determined by the number of listeners. 
+
+```{r}
+# calc number of users listening to each artist
+a_users <- arrange(summarise(group_by(lastfm, artistID), 
+                     TotalUsers = length(unique(userID)) ), desc(TotalUsers) )
+
+# truncate at top 1000
+top_1000 <- a_users[1:1000,]
+```
+
+Analysis indicates that a total of 182 of the top 1000 artists do not have a corresponding entry within the artists.dat file. 
+
+```{r}
+# find names of artists with most last.fm fans
+most_fans <- subset(top_1000, artistID %in% lfm_art$id)
+
+# re-arrange sort order to enable proper link to artist name
+most_fans <- arrange(most_fans, artistID, TotalUsers)
+
+# get names of artists
+mf_names <- subset(lfm_art, id %in% most_fans$artistID)
+
+most_fans$Name <- mf_names$name[mf_names$id %in% most_fans$artistID]
+
+most_fans <- arrange(most_fans, desc(TotalUsers))
+
+missing <- subset(top_1000, !(artistID %in% most_fans$artistID))
+
+length(missing$artistID)
+```
+
+Since 182 artists must be removed, this leaves us with a total of 818 artists to be retained within our user-artists data.
+
+```{r}
+# remove all items not in top 1000 artist list
+last_sm <- subset(lastfm, artistID %in% top_1000$artistID)
+
+# remove all artist ID's missing from artists.dat file
+last_sm <- subset(last_sm, !(artistID %in% missing$artistID))
+
+# form new master list of valid artist ID's excluding the 182 missing ones
+top_818 <- subset(top_1000, !(artistID %in% missing$artistID))
+
+rm(top_1000)
+```
+```{r}
+# load last.fm tags.dat file
+lfm_tags <- read_delim("C:\\Users\\admin\\OneDrive\\Documents\\VIT\\Sem 6\\D- DV\\J Comp\\Dataset\\tags.dat", delim = "\t")
+
+# count distinct users
+length(unique(lfm_tags$tagID))
+```
+```{r}
+# load last.fm user-taggedartists.dat file
+user_tags <- read_delim("C:\\Users\\admin\\OneDrive\\Documents\\VIT\\Sem 6\\D- DV\\J Comp\\Dataset\\user_taggedartists.dat", delim = "\t") %>% select(userID, artistID, tagID)
+
+# count entries in file
+nrow(user_tags)
+
+# count distinct users
+length(unique(user_tags$userID))
+
+# count distinct artists
+length(unique(user_tags$artistID))
+```
+```{r}
+summary(summarise(group_by(user_tags, userID),
+                     TotalTags = length(userID == userID) )$TotalTags )
+```
+```{r}
+summary(summarise(group_by(user_tags, userID),
+                     TotalUTags = length(unique(tagID)) )$TotalUTags )
+```
+```{r}
+# calc number of users listening to each artist
+tag_counts <- arrange(summarise(group_by(user_tags, tagID), 
+                     TotalUsers = length(unique(userID)) ), desc(TotalUsers) )
+
+summary(tag_counts$TotalUsers)
+```
+
+The summary statistics shown above indicate that the vast majority of the 11,946 genre labels haven't been used very much, with a median frequency of 1 and a mean frequency of 3.674. 
+```{r}
+par(mfrow=c(1,2))
+hist(tag_counts$TotalUsers, col = "yellow", main = "Dist. of # of Genre Taggings", breaks = 50, xlab = "Number of Listeners")
+
+boxplot(tag_counts$TotalUsers, col = "yellow", main = "Dist. of # of Genre Taggings", ylab = "Number of Listeners")
+```
+```{r}
+# truncate at top 200
+tag_200 <- tag_counts[1:200,]
+
+tag_200 <- arrange(tag_200, tagID)
+
+# get tag names
+tag_200$Names <- subset(lfm_tags, tagID %in% tag_200$tagID)$tagValue
+
+# sort by number of users
+tag_200 <- arrange(tag_200, desc(TotalUsers))
+
+kable(head(cbind(tag_200$Names, tag_200$TotalUsers), 20), col.names = c("Genre", "Num users Applying Tag"))
+```
+```{r}
+# truncate user-taggedartists to top 200 tagID's
+u_toptags <- subset(user_tags, tagID %in% tag_200$tagID)
+
+# count distinct artists
+length(unique(u_toptags$artistID))
+```
+```{r}
+# truncate user-taggedartists to top 818 artists
+u_toptags <- subset(u_toptags, artistID %in% top_818$artistID)
+
+# count distinct artists
+length(unique(u_toptags$artistID))
+```
+```{r}
+# calculate the number of times a genre tag has been applied to a given artist
+u_tt <- summarise(group_by(u_toptags, artistID, tagID ),
+                       Count = length(tagID) )
+
+# count distinct artists
+length(unique(u_tt$artistID))
+```
+
+Our results show that 3 of the 818 artists we retained from the user-artists data have not been tagged using any of the top 200 genre tags. These artists must therefore be removed from our top 818 list if we are to maintain consistency across our data objects. 
+
+```{r}
+# get a list of artists that haven't been tagged with one of top 200 tags
+not_tagged <- subset(top_818, !(artistID %in% u_toptags$artistID))
+not_tagged # all have relatively low user counts so OK to discard
+
+# check to see whether artists have been tagged at all
+not_tagged$artistID %in% user_tags$artistID
+
+# they have been tagged, but not with one of top 200 tags
+
+```
+```{r}
+top_815 <- subset(top_818, artistID %in% u_toptags$artistID)
+rm(top_818)
+
+# count distinct artists
+length(unique(top_815$artistID))
+```
+```{r}
+# remove all artist ID's missing from artists.dat file
+last_sm <- subset(last_sm, artistID %in% top_815$artistID)
+
+# count distinct users
+length(unique(last_sm$userID))
+```
+
+_____
+
+# Creating a User-Artist Matrix
+
+```{r}
+# convert to wide format
+l_mat <- spread(last_sm, artistID, weight)
+
+# save UserIDs and remove 1st column from matrix
+user_ids <- as.vector(l_mat$userID)
+
+# create a matrix using cols 2 -> ncol of l_mat
+lr_mat <- as.matrix(l_mat[,2:ncol(l_mat)])
+```
+
+
+```{r}
+# calc number of ratings in matrix
+nratings <- length(as.vector(lr_mat))
+nratings
+
+# calc density of matrix = 0.0337
+sum(!is.na(as.vector(lr_mat)) ) / nratings
+
+# calc sparsity of matrix
+1 - sum(!is.na(as.vector(lr_mat)) ) / nratings
+```
+
+As shown above, the density of our matrix is __3.37%__, with a corresponding sparsity of __96.62%__.
+
+_____
+
+# Creating an Artist - Genre Matrix
+
+```{r}
+# convert to wide format
+tmp_mat <- spread(u_tt, tagID, Count)
+
+# save artistIDs and remove 1st column from matrix
+ag_artistID <- as.vector(tmp_mat$artistID)
+
+# create a matrix using cols 2 -> ncol of l_mat
+ag_mat <- as.matrix(tmp_mat[,2:ncol(tmp_mat)])
+
+rm(tmp_mat)
+```
+
+As shown below, the resulting matrix has a total of 163,000 artist-genre pairings, with a density of __9.1%__ and a corresponding sparsity of __90.9%__.
+
+```{r}
+# calc number of ratings in matrix
+ntags <- length(as.vector(ag_mat))
+ntags
+
+# calc density of matrix = 0.091
+sum(!is.na(as.vector(ag_mat)) ) / ntags
+
+# calc sparsity of matrix
+1 - sum(!is.na(as.vector(ag_mat)) ) / ntags
+```
+
+_____
+
+# Binarizing the Matrices
+
+A binary version outperformed the non-binary version as measured by the area under the respective ROC curves as well as by precision-recall measures. As such, we will make use of a binary version of the user-artist matrix here as the basis of our user-based collaborative filter. The user-artist matrix can be binarized as follows:
+
+```{r, eval = TRUE}
+# create binarized copy of data
+bin_lrmat <- lr_mat
+
+bin_lrmat[,][is.na(bin_lrmat[,])] <- 0
+bin_lrmat[,][bin_lrmat[,] > 0] <- 1
+```
+
+While our artist-genre matrix will not be used as the basis of a collaborative filter, we will be using it for purposes of generating an artist similarity matrix. 
+
+```{r, eval = TRUE}
+# create binarized copy of data
+bin_agmat <- ag_mat
+
+bin_agmat[,][is.na(bin_agmat[,])] <- 0
+bin_agmat[,][bin_agmat[,] > 0] <- 1
+```
+
+_____ 
+
+# Building a User-Based Collaborative Filter
+
+A user-based collaborative filter (UBCF) is constructed using tools provided within the __recommenderlab__ package. As a first step, we will convert the user-artist matrix to a __binaryRatingMatrix__:
+
+```{r}
+# convert non-binary matrix to a recommenderlab realRatingMatrix
+ua_bmat <- as(bin_lrmat,"binaryRatingMatrix")
+```
+
+The matrix is then split into training and testing subsets via __recommenderlab__'s __evaluationScheme()__ function. Subsequently, the UBCF is generated and performance tested. In this instance, we require that the UBCF generate a "Top 10" list of recommended musical artists for the users.
+
+```{r}
+# split the binary data into the training and the test set:
+e_bin <- evaluationScheme(ua_bmat, method="split", train=0.8, given = 1, goodRating = 1)
+
+n_recommended <- 10
+
+# build the item-based binary recommender using training subset
+b1 <- Recommender(getData(e_bin, "train"), "UBCF", 
+                          parameter = list(method = "Jaccard"))
+
+# make predictions on test set
+b_pred <- predict(b1, getData(e_bin, "known"), n = n_recommended, goodRating = 1)
+
+# check the accuracy of the predictions
+error_b <- calcPredictionAccuracy(b_pred, getData(e_bin, "unknown"), 
+                                  given = n_recommended, goodRating = 1)
+
+kable(error_b, caption = "Performance Metrics")
+```
+
+
+```{r}
+b_pred@items[1:4]
+```
+
+
+```{r}
+n_recommended <- 20
+
+# now make predictions for every user with the binary recommender
+b_pred <- predict(b1, ua_bmat, n = n_recommended, goodRating = 1)
+
+# check to ensure rec's created for all users
+b_pred@items[20:23]
+```
+
+
+```{r}
+# create a data frame to house 10 recommendations for each artist
+user_tenrecs <- data.frame(matrix(ncol = 11, nrow = length(user_ids)))
+user_tenrecs[,1] <- user_ids
+
+
+colnames(user_tenrecs) <- c("userID", "r1", "r2", "r3", "r4", "r5",
+                            "r6", "r7", "r8", "r9", "r10")
+
+# load the recommendations from the recommender output object into a data frame
+for (i in 1:length(b_pred@items)){
+  
+  # get the recommended artists for the user
+  tmp_recs <- as.vector(b_pred@items[[i]])
+  
+  # get the length of rec vector for the user
+  num_trecs <- length(tmp_recs)
+
+  # get list of unique user's artists from original data
+  user_arts <- unique(subset(last_sm, userID == user_ids[i])$artistID)
+  
+  # eliminate artist that are already in user's playlist history
+  new_recs <- tmp_recs[!(tmp_recs %in% user_arts) ]
+
+  # get the length of new_rec vector
+  num_newrecs <- length(new_recs)
+  
+  # if too few recommendations generated, sample 10 at random from the top815
+  if(num_newrecs < 10) {
+    new_recs <- sample(top_815$artistID[!(top_815$artistID %in% user_arts)], 10)
+    
+  }
+  
+  # if too few recs to implement strategy, just use the first 10
+  if (num_newrecs < 13) {
+    topten <- new_recs[1:10]
+  } else {
+    # randomly select 7 of the top 10 remaining recommendations
+    t_seven <- sample(new_recs[1:10], 7)
+    
+    # then randomly select 3 of the remaining recommendations
+    t_three <- sample(new_recs[11:length(new_recs)], 3)
+    
+    # merge the two lists of artist ID's
+    topten <- c(t_seven, t_three)
+  } # end if else
+  
+  # scramble the top 10 so that they are randomly ordered
+  topten <- sample(topten, 10)
+  
+  # add recs to data frame
+  user_tenrecs[i,2:11 ] <- topten
+  
+} # end for loop
+```
+
+_____
+
+### Display a List of 10 Recommended Artists for a Given User
+
+
+```{r}
+# randomly select a user
+user <- sample(user_ids, 1)
+
+# fetch their recommendations
+urecs <- sort(unlist(as.vector(subset(user_tenrecs, userID == user)[2:11]) ))
+
+# create list of artist names from artist ID's in list
+rec_names <- subset(lfm_art, id %in% urecs)$name
+
+kable(rec_names, col.names = "Artists You Might Enjoy")
+```
+
+
+_____
+
+# Recommend Similar Artists via an Artist Similarity Matrix
+
+To facilitate the making of recommendations of artists similar to a specific artist, we create an artist similarity matrix using cosine distance as the metric of similarity via the __similarity()__ function provided within the __recommenderlab__ package. 
+The resulting similarity matrix has one row and one column for each artist, with each cell within the matrix containing the result of the corresponding cosine similarity calculation. The artist similarity matrix is formulated as follows:
+
+```{r}
+# calculate artist similarity matrix
+art_sim <- similarity(as(bin_agmat, "binaryRatingMatrix"), method = "cosine",
+                     which = "users")
+
+# convert to an R matrix
+art_sim <- as(art_sim, "matrix")
+
+# round to 3 digit precision
+art_sim[][] <- round(art_sim[][],3)
+
+# # name rows + cols according to artistID for easy retrieval
+colnames(art_sim) <- ag_artistID
+rownames(art_sim) <- ag_artistID
+```
+
+
+_____
+
+### Generate Top N Similar Artist list for a Given ArtistID
+
+
+```{r}
+# set number of similar artists to recommend
+n_recommended <- 5
+
+# randomly select a user
+artist <- sample(ag_artistID, 1)
+
+# get name of artist from artist list
+a_name <- lfm_art[lfm_art$id == artist,]$name
+
+# fetch their recommendations: this returns a named vector sorted by similarity
+# the names of the items are the artist IDs
+arecs <- sort(art_sim[as.character(artist),], decreasing = TRUE)[1:n_recommended]
+
+# extract the artist IDs and convert to numeric
+arecs_IDs <- as.numeric(names(arecs))
+
+# create list of artist names from artist ID's in list
+arec_names <- lfm_art[lfm_art$id %in% arecs_IDs,]$name
+
+# create a heading for the list of similar artists
+table_head <- sprintf("Artists Similar to %s", a_name)
+
+# display the list of similar artists
+kable(arec_names, col.names = table_head)
+```
+
+
+_____
+
+# Generate a Top 5 Artist List by Genre
+
+
+```{r}
+# this is only here for random number generation: delete in production mode
+set.seed(42)
+
+# set rownames = artistID's for easy retrieval - DON'T NEED THIS LINE OF CODE IN SHINY
+rownames(ag_mat) <- ag_artistID
+
+# extract the genre tagIDs from matrix and convert to numeric
+tagIDs <- as.numeric(colnames(ag_mat))
+
+# set number of artists to recommend
+n_recommended <- 5
+
+# randomly select a genre
+tagID <- sample(tagIDs, 1)
+
+# get name of genre from tagID list
+g_name <- lfm_tags[lfm_tags$tagID == tagID,]$tagValue
+
+# fetch the top N artists:
+# the names of the items are the artist IDs
+g_arecs <- sort(ag_mat[,as.character(tagID)], decreasing = TRUE)[1:n_recommended]
+
+# extract the artist IDs and convert to numeric
+g_arecs_IDs <- as.numeric(names(g_arecs))
+
+# create list of artist names from artist ID's in list
+g_arec_names <- lfm_art[lfm_art$id %in% g_arecs_IDs,]$name
+
+# create a heading for the list of similar artists
+table_head <- sprintf("Top Artists in %s genre:", g_name)
+
+# display the list of similar artists
+kable(g_arec_names, col.names = table_head)
+
+```
+
+_____
+
+# Saving R objects for use in a Shiny Application
+
+
+### Save the user_tenrecs Object to a File
+
+```{r, eval = FALSE}
+# save an R object to a file for future use
+write.csv(user_tenrecs, "c:/data/643/user_tenrecs.csv", row.names=FALSE)
+
+# delete the file from memory
+rm(user_tenrecs)
+
+# reload delete object into memory
+user_tenrecs <- read.csv("https://raw.githubusercontent.com/RobertSellers/R_Shiny_Recommender/master/R-Obj-CSVs/user_tenrecs.csv", 
+                  header=TRUE, sep = ",", stringsAsFactors = FALSE)
+```
+
+### Save the Artist-Genre Matrix to a File
+
+```{r, eval = FALSE}
+# save an R object to a file for future use
+write.csv(ag_mat, row.names = TRUE,
+               file = "c:/data/643/ag_mat.csv")
+
+# delete the file from memory
+rm(ag_mat)
+
+# reload delete object into memory
+ag_mat <- as.matrix(read.csv("https://raw.githubusercontent.com/RobertSellers/R_Shiny_Recommender/master/R-Obj-CSVs/ag_mat.csv", check.names = FALSE,
+                  header=TRUE, sep = ",", stringsAsFactors = FALSE) )
+
+# set rownames to values in V1
+row.names(ag_mat) <- as.numeric(ag_mat[,1])
+
+# now truncate matrix to eliminate col 1
+ag_mat <- ag_mat[,2:ncol(ag_mat)]
+
+```
+
+
+### Save the Artist Similarity Matrix to a File
+
+```{r, eval = FALSE}
+# save an R object to a file for future use
+write.csv(art_sim, row.names = TRUE,
+               file = "c:/data/643/art_sim.csv")
+
+# delete the file from memory
+rm(art_sim)
+
+art_sim <- as.matrix(read.csv("https://raw.githubusercontent.com/RobertSellers/R_Shiny_Recommender/master/R-Obj-CSVs/art_sim.csv", check.names = FALSE,
+                  header=TRUE, sep = ",", stringsAsFactors = FALSE) )
+
+# set rownames to values in V1
+row.names(art_sim) <- as.numeric(art_sim[,1])
+
+# now truncate matrix to eliminate col 1
+art_sim <- art_sim[,2:ncol(art_sim)]
+
+```
+
+
+### Save the User-Artist Data to a File
+
+
+```{r, eval = FALSE}
+# save an R object to a file for future use
+write.csv(last_sm, "c:/data/643/last_sm.csv", row.names=FALSE)
+
+# delete the file from memory
+rm(last_sm)
+
+# reload delete object into memory
+last_sm <- read.csv("https://raw.githubusercontent.com/RobertSellers/R_Shiny_Recommender/master/R-Obj-CSVs/last_sm.csv", 
+                  header=TRUE, sep = ",", stringsAsFactors = FALSE)
+```
+
+
+
+# Conclusion
+
+This project has provided the authors with the opportunity to gain experience in implementing a variety of recommendation algorithms using a large (1.5 Million+ item) data set and to gain insight into how many commercial recommender systems enable "user discovery" of different content. Specifically, we've had the opportunity to explore how recommendations of musical artists can be made via a variety of methods, including through the use of a user-based collaborative filtering algorithm, similarity matrices, and content-based filtering. Furthermore, we've gained experience in implementing an interactive user interface within the context of a combined collaborative/content-based recommender system environment.
+
+Possible future work with the interactive recommender system interface could include assessing in an online environment whether or not the suggested artist recommendations lead users to explore artists they have not listened to previously on Last.fm. Such an assessment would necessarily require the addition of a mechanism to track click-through rates for those lists. Information gleaned from the click-through analysis might then be used to determine whether or not the implementation of the "Artists You Might Enjoy" lists results in any tangible changes in Last.fm user behavior and/or system usage.
+
+Additional future work could also include extending the lists of recommended artists to include links to music samples and other media available for each of the respective artists. 
