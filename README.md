@@ -6,7 +6,7 @@
 
 **NOVELTY:**
 
-Our project intitally proposes a comparative study of a dataset to suggest a Musical Artist Recommendation System for both Shiny and Tableau and creates visualisation for the user and thus recommend which is better for the user to use and visualise. Both of the approaches have different market scopes and strategies that would totally depend on the approach of the user which he/she is going to use for the recommendation or suggestion. According to the market analysis of the report, the project has one code based and one non-coding based approach, according to which the user would utitlise the idea of this project. If the user has a coding background then we suggest the user should use Shiny based model or else if the coder is of a non-coding background then the user should use the Tableau based model.   
+Our project intially proposed a comparative study of a dataset to suggest a Musical Artist Recommendation System for both Shiny and Tableau and creates visualisation for the user and thus recommend which is better for the user to use and visualise. Both of the approaches have different market scopes and strategies that would totally depend on the approach of the user which he/she is going to use for the recommendation or suggestion. According to the market analysis of the report, the project has one code based and one non-coding based approach, according to which the user would utitlise the idea of this project. If the user has a coding background then we suggest the user should use Shiny based model or else if the coder is of a non-coding background then the user should use the Tableau based model.   
 
 **Repository includes:**
 
